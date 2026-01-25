@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-// ✅ CORRETTO: L'importazione deve stare QUI, in alto.
 use App\Models\GmailLabel;
 use Google\Service\Gmail;
 use Google\Client;
@@ -97,7 +96,7 @@ class GoogleGmailService
         // Questo è molto più preciso e veloce della ricerca per nome
         $params = [
             'labelIds' => ['Label_6119983706498995731'],
-            'maxResults' => 5000  // Puoi alzarlo a 50 o 100
+            'maxResults' => 10  // Puoi alzarlo a 50 o 100
         ];
 
         $response = $gmail->users_messages->listUsersMessages('me', $params);
