@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Dipendente;
+use App\Models\GmailLabel;
 use App\Models\Referente;
 use App\Services\GoogleGmailService;
 use Carbon\Carbon;
@@ -101,8 +102,7 @@ class GmailController extends Controller
 
     public function importToDb()
     {
-        // 1. Recupera le email da Google
-        $emails = $this->gmailService->getPrivacyEmails();
+        $emails = $this->gmailService->getEmailsFromDbLabels();
 
         if ($emails === null) {
             return redirect()->to('/dev-login');
@@ -112,39 +112,61 @@ class GmailController extends Controller
         $countMandatarie = 0;
 
         foreach ($emails as $emailData) {
-            $rawFrom = $emailData['mittente'];  // Es: "Mario Rossi <mario@innova-tech.cloud>"
+            $rawFrom = $emailData['mittente'];
+            $currentLabelId = $emailData['label_id'];
 
-            // Logica per separare Nome da Email
+            // Recuperiamo il dominio atteso per questa etichetta (es. "innova-tech.cloud")
+            $expectedDomain = $emailData['label_dominio'];
+
+            // Estrazione dati mittente
             if (str_contains($rawFrom, '<')) {
                 $name = trim(Str::before($rawFrom, '<'));
                 $emailAddress = trim(Str::between($rawFrom, '<', '>'));
             } else {
-                $name = '';  // Nessun nome visualizzato
+                $name = '';
                 $emailAddress = trim($rawFrom);
             }
-
-            // Pulizia finale (rimuovi doppi apici se presenti)
             $name = str_replace('"', '', $name);
 
-            // LOGICA DI SMISTAMENTO
-            // Usiamo updateOrCreate per non creare duplicati se riesegui lo script
-            if (str_ends_with($emailAddress, '@innova-tech.cloud')) {
+            // LOGICA DINAMICA
+            // 1. Controlliamo se c'è un dominio configurato per questa label
+            // 2. Controlliamo se l'email finisce con quel dominio (aggiungiamo la @ per sicurezza)
+            $isDipendente = false;
+
+            if (!empty($expectedDomain)) {
+                // Se nel DB hai scritto "innova-tech.cloud", aggiungiamo la "@"
+                // Se hai scritto "@innova-tech.cloud", la gestiamo per evitare doppi "@@"
+                $domainCheck = str_starts_with($expectedDomain, '@') ? $expectedDomain : '@' . $expectedDomain;
+
+                if (str_ends_with(strtolower($emailAddress), strtolower($domainCheck))) {
+                    $isDipendente = true;
+                }
+            }
+
+            if ($isDipendente) {
                 Dipendente::updateOrCreate(
-                    ['email' => $emailAddress],  // Cerca per email
-                    ['name' => $name]  // Aggiorna il nome se cambiato
+                    ['email' => $emailAddress],
+                    [
+                        'name' => $name,
+                        'label_id' => $currentLabelId
+                    ]
                 );
                 $countDipendenti++;
             } else {
+                // Se il dominio non coincide (o è vuoto), va in Mandatarie
                 Referente::updateOrCreate(
                     ['email' => $emailAddress],
-                    ['name' => $name]
+                    [
+                        'name' => $name,
+                        'label_id' => $currentLabelId
+                    ]
                 );
                 $countMandatarie++;
             }
         }
 
         return 'Importazione completata!<br>'
-            . "Dipendenti salvati/aggiornati: <strong>$countDipendenti</strong><br>"
-            . "Mandatarie salvate/aggiornate: <strong>$countMandatarie</strong>";
+            . "Dipendenti (match dominio label): <strong>$countDipendenti</strong><br>"
+            . "Mandatarie (altri): <strong>$countMandatarie</strong>";
     }
 }

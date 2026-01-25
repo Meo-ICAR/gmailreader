@@ -14,6 +14,7 @@ return new class extends Migration {
             $table->id();
             $table->string('name')->nullable();
             $table->string('email')->unique();  // Email univoca per evitare duplicati
+            $table->string('label_id')->nullable();
             $table->timestamps();
         });
     }

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+// ✅ CORRETTO: L'importazione deve stare QUI, in alto.
+use App\Models\GmailLabel;
 use Google\Service\Gmail;
 use Google\Client;
 use Illuminate\Support\Facades\Auth;
@@ -180,5 +182,76 @@ class GoogleGmailService
         }
 
         return $emails;
+    }
+
+    public function getEmailsFromDbLabels()
+    {
+        if (!$this->setupClient())
+            return null;
+
+        $gmail = new Gmail($this->client);
+
+        // 1. Recuperiamo tutte le etichette dal database locale
+        // Puoi filtrare qui se non vuoi scansionare le etichette di sistema (es. TRASH, SPAM)
+        // Esempio: GmailLabel::where('type', 'user')->get();
+        $dbLabels = GmailLabel::where('type', 'user')->get();
+
+        $allEmails = [];
+
+        foreach ($dbLabels as $label) {
+            // Prepariamo la query per QUESTA specifica etichetta
+            $params = [
+                'labelIds' => [$label->google_id],
+                'maxResults' => 10  // Teniamo basso per test, aumenta a 50 o 100 per produzione
+            ];
+
+            try {
+                // Chiamata API per l'etichetta corrente
+                $response = $gmail->users_messages->listUsersMessages('me', $params);
+                $messages = $response->getMessages();
+
+                if ($messages) {
+                    foreach ($messages as $messageSummary) {
+                        // Recupero dettagli messaggio
+                        $msg = $gmail->users_messages->get('me', $messageSummary->getId());
+                        $headers = $msg->getPayload()->getHeaders();
+
+                        $emailData = [
+                            'id' => $msg->getId(),
+                            // DATI RICHIESTI: Memorizziamo l'ID e il Nome della Label corrente
+                            'label_id' => $label->google_id,
+                            'label_name' => $label->name,
+                            'label_dominio' => $label->dominio,
+                            // Dati standard
+                            'mittente' => 'Sconosciuto',
+                            'destinatario' => 'Sconosciuto',
+                            'oggetto' => '(Nessun Oggetto)',
+                            'data' => ''
+                        ];
+
+                        foreach ($headers as $header) {
+                            $name = $header->getName();
+                            $value = $header->getValue();
+
+                            if ($name === 'From')
+                                $emailData['mittente'] = $value;
+                            elseif ($name === 'To')
+                                $emailData['destinatario'] = $value;
+                            elseif ($name === 'Subject')
+                                $emailData['oggetto'] = $value;
+                            elseif ($name === 'Date')
+                                $emailData['data'] = $value;
+                        }
+
+                        $allEmails[] = $emailData;
+                    }
+                }
+            } catch (\Exception $e) {
+                // Se un'etichetta dà errore (es. non esiste più su Google), continuiamo con la prossima
+                continue;
+            }
+        }
+
+        return $allEmails;
     }
 }

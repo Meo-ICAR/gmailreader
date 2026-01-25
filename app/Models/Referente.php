@@ -7,5 +7,5 @@ use Illuminate\Database\Eloquent\Model;
 class Referente extends Model
 {
     //  protected $table = 'referenti';  // Specifichiamo la tabella per sicurezza
-    protected $fillable = ['name', 'email'];
+    protected $fillable = ['name', 'email', 'label_id'];
 }

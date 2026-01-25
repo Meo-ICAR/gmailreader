@@ -8,5 +8,5 @@ class Dipendente extends Model
 {
     // <--- AGGIUNGI QUESTA RIGA FONDAMENTALE
     //  protected $table = 'dipendenti';
-    protected $fillable = ['name', 'email'];
+    protected $fillable = ['name', 'email', 'label_id'];
 }
