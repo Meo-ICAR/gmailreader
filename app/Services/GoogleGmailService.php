@@ -201,7 +201,7 @@ class GoogleGmailService
             // Prepariamo la query per QUESTA specifica etichetta
             $params = [
                 'labelIds' => [$label->google_id],
-                'maxResults' => 10  // Teniamo basso per test, aumenta a 50 o 100 per produzione
+                'maxResults' => 100  // Teniamo basso per test, aumenta a 50 o 100 per produzione
             ];
 
             try {
