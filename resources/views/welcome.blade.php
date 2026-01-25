@@ -30,11 +30,13 @@
                             <a href="/gmail/debug-labels" class="btn btn-outline-light btn-sm ms-2 text-decoration-none fw-bold">
                                 <i class="bi bi-box-arrow-right"></i> Labels
                             </a>
-                        </span>
-                         {{-- NUOVO PULSANTE AGGIUNTO QUI --}}
-                    <a href="/import-db" class="btn btn-outline-light btn-sm ms-2 text-decoration-none fw-bold">
+                            <hr>
+                              <a href="/import-db" class="btn btn-outline-light btn-sm ms-2 text-decoration-none fw-bold">
                         <i class="bi bi-box-arrow-in-right"></i> Importa in DB
                     </a>
+                        </span>
+                         {{-- NUOVO PULSANTE AGGIUNTO QUI --}}
+
                     @else
                         <span class="badge bg-warning text-dark fs-6 px-3 py-2 ms-2">
                             <i class="bi bi-exclamation-triangle"></i> Gmail NON Collegato

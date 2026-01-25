@@ -44,7 +44,7 @@ class GmailController extends Controller
         }
 
         // 2. Genera il nome del file con la data corrente
-        $fileName = 'privacy_innovative_export_' . date('Y-m-d_H-i') . '.csv';
+        $fileName = 'privacy_export_' . date('Y-m-d_H-i') . '.csv';
 
         // 3. Crea e scarica il CSV
         return response()->streamDownload(function () use ($emails) {
