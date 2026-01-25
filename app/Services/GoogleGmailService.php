@@ -41,6 +41,28 @@ class GoogleGmailService
     }
 
     /**
+     * Prepara il client con il token dell'utente
+     */
+    protected function setupClient()
+    {
+        $user = Auth::user();
+        if (!$user || !$user->google_token)
+            return false;
+
+        $this->client->setAccessToken($user->google_token);
+
+        if ($this->client->isAccessTokenExpired()) {
+            if ($this->client->getRefreshToken()) {
+                $newToken = $this->client->fetchAccessTokenWithRefreshToken($this->client->getRefreshToken());
+                $user->update(['google_token' => $newToken]);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * TEST: Elenca tutte le etichette disponibili
      */
     public function getAllLabels()
@@ -63,6 +85,60 @@ class GoogleGmailService
     }
 
     public function getPrivacyEmails()
+    {
+        if (!$this->setupClient())
+            return null;
+
+        $gmail = new Gmail($this->client);
+
+        // MODIFICA QUI: Usiamo l'ID esatto che hai trovato nel debug
+        // Questo è molto più preciso e veloce della ricerca per nome
+        $params = [
+            'labelIds' => ['Label_6119983706498995731'],
+            'maxResults' => 5000  // Puoi alzarlo a 50 o 100
+        ];
+
+        $response = $gmail->users_messages->listUsersMessages('me', $params);
+
+        $emails = [];
+        $messages = $response->getMessages();
+
+        if ($messages) {
+            foreach ($messages as $messageSummary) {
+                // Recuperiamo il messaggio completo
+                $msg = $gmail->users_messages->get('me', $messageSummary->getId());
+                $headers = $msg->getPayload()->getHeaders();
+
+                $emailData = [
+                    'id' => $msg->getId(),
+                    'mittente' => 'Sconosciuto',
+                    'destinatario' => 'Sconosciuto',
+                    'oggetto' => '(Nessun Oggetto)',
+                    'data' => ''
+                ];
+
+                // Ciclo ottimizzato per estrarre gli header
+                foreach ($headers as $header) {
+                    $name = $header->getName();
+                    $value = $header->getValue();
+
+                    if ($name === 'From')
+                        $emailData['mittente'] = $value;
+                    elseif ($name === 'To')
+                        $emailData['destinatario'] = $value;
+                    elseif ($name === 'Subject')
+                        $emailData['oggetto'] = $value;
+                    elseif ($name === 'Date')
+                        $emailData['data'] = $value;
+                }
+                $emails[] = $emailData;
+            }
+        }
+
+        return $emails;
+    }
+
+    public function getPrivacyEmailslabel()
     {
         $user = Auth::user();
         if (!$user->google_token)
@@ -97,6 +173,8 @@ class GoogleGmailService
                     $emailData['destinatario'] = $header->getValue();
                 if ($header->getName() == 'Subject')
                     $emailData['oggetto'] = $header->getValue();
+                if ($header->getName() == 'Date')
+                    $emailData['data'] = $header->getValue();
             }
             $emails[] = $emailData;
         }

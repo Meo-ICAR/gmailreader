@@ -13,6 +13,7 @@ Route::get('/gmail/login', [GmailController::class, 'login'])->name('gmail.login
 Route::get('/oauth/gmail/callback', [GmailController::class, 'callback']);
 Route::get('/gmail/privacy-list', [GmailController::class, 'list'])->name('gmail.list');
 Route::get('/gmail/debug-labels', [GmailController::class, 'debugLabels']);
+Route::get('/gmail/import-db', [GmailController::class, 'importToDb']);
 Route::get('/dev-login', function () {
     // Cerchiamo l'utente creato con il seeder
     $user = User::where('email', 'hassistosrl@gmail.com')->first();
