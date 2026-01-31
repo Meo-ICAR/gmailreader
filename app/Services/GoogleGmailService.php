@@ -96,7 +96,7 @@ class GoogleGmailService
         // Questo è molto più preciso e veloce della ricerca per nome
         $params = [
             'labelIds' => ['Label_6119983706498995731'],
-            'maxResults' => 10  // Puoi alzarlo a 50 o 100
+            'maxResults' => 9999  // Puoi alzarlo a 50 o 100
         ];
 
         $response = $gmail->users_messages->listUsersMessages('me', $params);
@@ -201,7 +201,7 @@ class GoogleGmailService
             // Prepariamo la query per QUESTA specifica etichetta
             $params = [
                 'labelIds' => [$label->google_id],
-                'maxResults' => 100  // Teniamo basso per test, aumenta a 50 o 100 per produzione
+                'maxResults' => 999999  // Teniamo basso per test, aumenta a 50 o 100 per produzione
             ];
 
             try {
