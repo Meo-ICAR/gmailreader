@@ -9,6 +9,7 @@ class EmailInteraction extends Model
     protected $fillable = [
         'message_id',
         'email_address',
+        'domain',
         'role',
         'subject',
         'sent_at',

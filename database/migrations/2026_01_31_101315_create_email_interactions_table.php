@@ -14,6 +14,7 @@ return new class extends Migration {
             $table->id();
             $table->string('message_id')->index();  // ID Univoco di Google
             $table->string('email_address')->index();  // L'indirizzo estratto
+            $table->string('domain')->index();  // Dominio dell'email
             $table->string('role');  // 'FROM', 'TO', 'CC', 'BODY_MATCH'
             $table->text('subject')->nullable();
             $table->dateTime('sent_at')->nullable();

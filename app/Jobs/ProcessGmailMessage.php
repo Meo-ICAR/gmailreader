@@ -82,6 +82,7 @@ class ProcessGmailMessage implements ShouldQueue
                 EmailInteraction::create([
                     'message_id' => $this->messageId,
                     'email_address' => $from,
+                    'domain' => $this->extractDomain($from),
                     'role' => 'FROM',
                     'subject' => $subject,
                     'sent_at' => $date,
@@ -96,6 +97,7 @@ class ProcessGmailMessage implements ShouldQueue
                     EmailInteraction::create([
                         'message_id' => $this->messageId,
                         'email_address' => $ccEmail,
+                        'domain' => $this->extractDomain($ccEmail),
                         'role' => 'CC',
                         'subject' => $subject,
                         'sent_at' => $date,
@@ -117,5 +119,13 @@ class ProcessGmailMessage implements ShouldQueue
     {
         preg_match('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $string, $matches);
         return $matches[0] ?? null;
+    }
+
+    private function extractDomain($email)
+    {
+        if (!$email)
+            return null;
+        $parts = explode('@', $email);
+        return $parts[1] ?? null;
     }
 }
