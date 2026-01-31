@@ -24,4 +24,9 @@ Route::get('/dev-login', function () {
 
     Auth::login($user);
     return "Sei loggato come Admin! <br><a href='/gmail/login'>Ora clicca qui per collegare Google Gmail</a>";
+
+    Route::get('/gmail/start-batch', function (App\Services\GoogleGmailService $service) {
+        $service->dispatchBatchImport();
+        return 'Importazione avviata in background! I dati appariranno gradualmente su Filament.';
+    });
 });

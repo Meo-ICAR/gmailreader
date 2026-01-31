@@ -187,51 +187,39 @@ class GoogleGmailService
     {
         if (!$this->setupClient())
             return null;
-
         $gmail = new Gmail($this->client);
-
-        // 1. Recuperiamo tutte le etichette dal database locale
-        // Puoi filtrare qui se non vuoi scansionare le etichette di sistema (es. TRASH, SPAM)
-        // Esempio: GmailLabel::where('type', 'user')->get();
-        $dbLabels = GmailLabel::where('type', 'user')->get();
-
+        $dbLabels = GmailLabel::all();
         $allEmails = [];
 
         foreach ($dbLabels as $label) {
-            // Prepariamo la query per QUESTA specifica etichetta
-            $params = [
-                'labelIds' => [$label->google_id],
-                'maxResults' => 999999  // Teniamo basso per test, aumenta a 50 o 100 per produzione
-            ];
+            $params = ['labelIds' => [$label->google_id], 'maxResults' => 10];  // Limitato per test
 
             try {
-                // Chiamata API per l'etichetta corrente
                 $response = $gmail->users_messages->listUsersMessages('me', $params);
                 $messages = $response->getMessages();
 
                 if ($messages) {
                     foreach ($messages as $messageSummary) {
-                        // Recupero dettagli messaggio
                         $msg = $gmail->users_messages->get('me', $messageSummary->getId());
-                        $headers = $msg->getPayload()->getHeaders();
+                        $payload = $msg->getPayload();  // Payload completo
+                        $headers = $payload->getHeaders();
 
                         $emailData = [
                             'id' => $msg->getId(),
-                            // DATI RICHIESTI: Memorizziamo l'ID e il Nome della Label corrente
                             'label_id' => $label->google_id,
                             'label_name' => $label->name,
                             'label_dominio' => $label->dominio,
-                            // Dati standard
                             'mittente' => 'Sconosciuto',
                             'destinatario' => 'Sconosciuto',
                             'oggetto' => '(Nessun Oggetto)',
-                            'data' => ''
+                            'data' => '',
+                            'body_emails' => []  // <--- NUOVO CAMPO
                         ];
 
+                        // 1. Estrai Header (come prima)
                         foreach ($headers as $header) {
                             $name = $header->getName();
                             $value = $header->getValue();
-
                             if ($name === 'From')
                                 $emailData['mittente'] = $value;
                             elseif ($name === 'To')
@@ -242,15 +230,113 @@ class GoogleGmailService
                                 $emailData['data'] = $value;
                         }
 
+                        // 2. Estrai il corpo del messaggio
+                        $rawBody = $this->getRawBody($payload);
+
+                        // 3. Cerca tutte le email nel corpo usando REGEX
+                        // Pattern: cerca stringhe nel formato xxxx@xxxx.xx
+                        preg_match_all('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $rawBody, $matches);
+
+                        // $matches[0] contiene tutte le email trovate
+                        if (!empty($matches[0])) {
+                            // Puliamo l'array rimuovendo duplicati e rendendo tutto minuscolo
+                            $foundEmails = array_unique(array_map('strtolower', $matches[0]));
+
+                            // (Opzionale) Rimuovi l'email del mittente originale se vuoi solo quelle "extra"
+                            // $senderEmail = ... estrai email da $emailData['mittente']
+                            // $foundEmails = array_diff($foundEmails, [$senderEmail]);
+
+                            $emailData['body_emails'] = array_values($foundEmails);
+                        }
+
                         $allEmails[] = $emailData;
                     }
                 }
             } catch (\Exception $e) {
-                // Se un'etichetta dà errore (es. non esiste più su Google), continuiamo con la prossima
                 continue;
             }
         }
-
         return $allEmails;
+    }
+
+    /**
+     * Funzione ricorsiva per estrarre il testo da un messaggio Gmail (Multipart)
+     */
+    private function getRawBody($payload)
+    {
+        $body = '';
+
+        // Se il messaggio ha parti nidificate (es. testo + html)
+        if ($payload->getParts()) {
+            foreach ($payload->getParts() as $part) {
+                if ($part->getMimeType() === 'text/plain') {
+                    $data = $part->getBody()->getData();
+                } elseif ($part->getParts()) {
+                    // Ricorsione se ci sono sotto-parti
+                    $body .= $this->getRawBody($part);
+                }
+            }
+        }
+        // Se il messaggio è semplice
+        elseif ($payload->getBody()->getData()) {
+            $data = $payload->getBody()->getData();
+        }
+
+        if (isset($data)) {
+            // Decodifica Base64URL usato da Gmail
+            $body .= base64_decode(str_replace(['-', '_'], ['+', '/'], $data));
+        }
+
+        return $body;
+    }
+
+    // In GoogleGmailService.php
+
+    public function dispatchBatchImport()
+    {
+        if (!$this->setupClient())
+            return false;
+
+        $gmail = new Gmail($this->client);
+        $dbLabels = \App\Models\GmailLabel::all();
+        $userId = \Illuminate\Support\Facades\Auth::id();
+
+        foreach ($dbLabels as $label) {
+            $pageToken = null;
+
+            do {
+                $params = [
+                    'labelIds' => [$label->google_id],
+                    'maxResults' => 50,  // Scarichiamo 50 ID alla volta
+                    'pageToken' => $pageToken
+                ];
+
+                try {
+                    $response = $gmail->users_messages->listUsersMessages('me', $params);
+                    $messages = $response->getMessages();
+
+                    if ($messages) {
+                        foreach ($messages as $message) {
+                            // Verifica se l'abbiamo già importato per non duplicare i job
+                            $exists = \App\Models\EmailInteraction::where('message_id', $message->getId())->exists();
+
+                            if (!$exists) {
+                                // Lancia il Job in coda
+                                \App\Jobs\ProcessGmailMessage::dispatch(
+                                    $message->getId(),
+                                    $label->name,
+                                    $userId
+                                );
+                            }
+                        }
+                    }
+                    $pageToken = $response->getNextPageToken();
+                } catch (\Exception $e) {
+                    break;  // Interrompi loop etichetta in caso di errore
+                }
+            } while ($pageToken);
+        }
+
+        return true;
     }
 }
