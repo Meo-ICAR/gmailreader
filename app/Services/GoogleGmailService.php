@@ -17,7 +17,9 @@ class GoogleGmailService
         $this->client->setClientId(env('GMAIL_CLIENT_ID'));
         $this->client->setClientSecret(env('GMAIL_CLIENT_SECRET'));
         $this->client->setRedirectUri(env('GMAIL_REDIRECT_URI'));
+        // Aggiunto scope per modifiche (necessario per scaricare allegati)
         $this->client->addScope(Gmail::GMAIL_READONLY);
+        $this->client->addScope(Gmail::GMAIL_MODIFY);
         $this->client->setAccessType('offline');  // Fondamentale per ricevere il refresh_token
         $this->client->setPrompt('select_account consent');
     }
@@ -338,5 +340,135 @@ class GoogleGmailService
         }
 
         return true;
+    }
+
+    /**
+     * Scarica gli allegati da un messaggio Gmail specifico
+     * 
+     * @param string $messageId ID del messaggio Gmail
+     * @return array Array di allegati con informazioni e contenuto
+     */
+    public function downloadAttachments($messageId)
+    {
+        if (!$this->setupClient())
+            return [];
+
+        $gmail = new Gmail($this->client);
+        $attachments = [];
+
+        try {
+            // Recupera il messaggio completo
+            $message = $gmail->users_messages->get('me', $messageId);
+            $payload = $message->getPayload();
+
+            // Processa le parti del messaggio per trovare allegati
+            $attachments = $this->processMessageParts($gmail, $messageId, $payload);
+        } catch (\Exception $e) {
+            \Log::error("Errore scaricamento allegati per messaggio {$messageId}: " . $e->getMessage());
+        }
+
+        return $attachments;
+    }
+
+    /**
+     * Processa ricorsivamente le parti del messaggio per trovare allegati
+     * 
+     * @param Gmail $gmail Istanza del servizio Gmail
+     * @param string $messageId ID del messaggio
+     * @param object $part Parte del messaggio da processare
+     * @return array Array di allegati trovati
+     */
+    private function processMessageParts($gmail, $messageId, $part)
+    {
+        $attachments = [];
+
+        // Se la parte ha sotto-parti, processa ricorsivamente
+        if ($part->getParts()) {
+            foreach ($part->getParts() as $subPart) {
+                $attachments = array_merge(
+                    $attachments,
+                    $this->processMessageParts($gmail, $messageId, $subPart)
+                );
+            }
+        }
+
+        // Verifica se questa parte è un allegato
+        $body = $part->getBody();
+        $filename = $part->getFilename();
+
+        if (!empty($filename) && $body->getAttachmentId()) {
+            try {
+                // Scarica l'allegato
+                $attachment = $gmail->users_messages_attachments->get(
+                    'me',
+                    $messageId,
+                    $body->getAttachmentId()
+                );
+
+                $attachments[] = [
+                    'filename' => $filename,
+                    'mimeType' => $part->getMimeType(),
+                    'size' => $body->getSize(),
+                    'attachmentId' => $body->getAttachmentId(),
+                    'data' => $attachment->getData() // Dati in formato base64url
+                ];
+            } catch (\Exception $e) {
+                \Log::error("Errore scaricamento singolo allegato {$filename}: " . $e->getMessage());
+            }
+        }
+
+        return $attachments;
+    }
+
+    /**
+     * Salva un allegato su disco
+     * 
+     * @param array $attachmentData Dati dell'allegato da salvare
+     * @param string $storagePath Percorso di storage relativo
+     * @return string|null Percorso del file salvato o null in caso di errore
+     */
+    public function saveAttachment($attachmentData, $storagePath = 'attachments')
+    {
+        try {
+            // Decodifica i dati da base64url a binario
+            $data = str_replace(['-', '_'], ['+', '/'], $attachmentData['data']);
+            $decodedData = base64_decode($data);
+
+            // Crea un nome file sicuro
+            $filename = $this->sanitizeFilename($attachmentData['filename']);
+            $fullPath = storage_path("app/{$storagePath}/{$filename}");
+
+            // Crea la directory se non esiste
+            $directory = dirname($fullPath);
+            if (!is_dir($directory)) {
+                mkdir($directory, 0755, true);
+            }
+
+            // Salva il file
+            file_put_contents($fullPath, $decodedData);
+
+            return "{$storagePath}/{$filename}";
+        } catch (\Exception $e) {
+            \Log::error("Errore salvataggio allegato: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Sanitizza il nome del file per renderlo sicuro
+     * 
+     * @param string $filename Nome file originale
+     * @return string Nome file sanitizzato
+     */
+    private function sanitizeFilename($filename)
+    {
+        // Rimuovi caratteri non sicuri
+        $filename = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
+        
+        // Aggiungi timestamp per evitare conflitti
+        $extension = pathinfo($filename, PATHINFO_EXTENSION);
+        $basename = pathinfo($filename, PATHINFO_FILENAME);
+        
+        return $basename . '_' . time() . '.' . $extension;
     }
 }

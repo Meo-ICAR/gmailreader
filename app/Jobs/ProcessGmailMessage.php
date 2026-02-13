@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Attachment;
 use App\Models\EmailInteraction;
 use App\Models\User;
 use Carbon\Carbon;
@@ -109,6 +110,130 @@ class ProcessGmailMessage implements ShouldQueue
             // 6. (Opzionale) Parsing del BODY per email extra (usa la logica vista prima)
             // ... qui puoi inserire la logica getRawBody e Regex ...
             // e salvare con role => 'BODY_MATCH'
+
+            // 7. Gestione degli allegati
+            $this->processAttachments($gmail, $msg);
+        } catch (\Exception $e) {
+            // Log errore silenzioso o riprova
+            \Log::error("Errore processando messaggio {$this->messageId}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Processa e salva gli allegati di un messaggio
+     */
+    private function processAttachments($gmail, $message)
+    {
+        $payload = $message->getPayload();
+        $attachments = $this->extractAttachments($gmail, $this->messageId, $payload);
+
+        foreach ($attachments as $attachmentData) {
+            try {
+                // Verifica se l'allegato è già stato salvato
+                $existing = Attachment::where('message_id', $this->messageId)
+                    ->where('attachment_id', $attachmentData['attachmentId'])
+                    ->first();
+
+                if (!$existing) {
+                    // Decodifica e salva il file
+                    $data = str_replace(['-', '_'], ['+', '/'], $attachmentData['data']);
+                    $decodedData = base64_decode($data);
+
+                    // Crea nome file sicuro
+                    $safeFilename = $this->sanitizeFilename($attachmentData['filename']);
+                    $storagePath = "attachments/{$this->labelName}/" . date('Y-m');
+                    $fullPath = storage_path("app/{$storagePath}/{$safeFilename}");
+
+                    // Crea directory se non esiste
+                    $directory = dirname($fullPath);
+                    if (!is_dir($directory)) {
+                        mkdir($directory, 0755, true);
+                    }
+
+                    // Salva il file
+                    file_put_contents($fullPath, $decodedData);
+
+                    // Salva record nel database
+                    Attachment::create([
+                        'message_id' => $this->messageId,
+                        'attachment_id' => $attachmentData['attachmentId'],
+                        'filename' => $attachmentData['filename'],
+                        'safe_filename' => $safeFilename,
+                        'mime_type' => $attachmentData['mimeType'],
+                        'size' => $attachmentData['size'],
+                        'storage_path' => "{$storagePath}/{$safeFilename}",
+                        'downloaded' => true
+                    ]);
+
+                    \Log::info("Allegato salvato: {$safeFilename} per messaggio {$this->messageId}");
+                }
+            } catch (\Exception $e) {
+                \Log::error("Errore salvando allegato {$attachmentData['filename']}: " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Estrae ricorsivamente gli allegati dal payload del messaggio
+     */
+    private function extractAttachments($gmail, $messageId, $part)
+    {
+        $attachments = [];
+
+        // Se la parte ha sotto-parti, processa ricorsivamente
+        if ($part->getParts()) {
+            foreach ($part->getParts() as $subPart) {
+                $attachments = array_merge(
+                    $attachments,
+                    $this->extractAttachments($gmail, $messageId, $subPart)
+                );
+            }
+        }
+
+        // Verifica se questa parte è un allegato
+        $body = $part->getBody();
+        $filename = $part->getFilename();
+
+        if (!empty($filename) && $body->getAttachmentId()) {
+            try {
+                // Scarica l'allegato da Gmail
+                $attachment = $gmail->users_messages_attachments->get(
+                    'me',
+                    $messageId,
+                    $body->getAttachmentId()
+                );
+
+                $attachments[] = [
+                    'filename' => $filename,
+                    'mimeType' => $part->getMimeType(),
+                    'size' => $body->getSize(),
+                    'attachmentId' => $body->getAttachmentId(),
+                    'data' => $attachment->getData()
+                ];
+            } catch (\Exception $e) {
+                \Log::error("Errore scaricamento allegato {$filename}: " . $e->getMessage());
+            }
+        }
+
+        return $attachments;
+    }
+
+    /**
+     * Sanitizza il nome del file
+     */
+    private function sanitizeFilename($filename)
+    {
+        // Rimuovi caratteri pericolosi
+        $filename = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
+        
+        // Aggiungi timestamp per evitare conflitti
+        $extension = pathinfo($filename, PATHINFO_EXTENSION);
+        $basename = pathinfo($filename, PATHINFO_FILENAME);
+        
+        // Limita la lunghezza del basename
+        $basename = substr($basename, 0, 50);
+        
+        return $basename . '_' . time() . '_' . uniqid() . '.' . $extension;
         } catch (\Exception $e) {
             // Log errore silenzioso o riprova
             \Log::error("Errore processando messaggio {$this->messageId}: " . $e->getMessage());

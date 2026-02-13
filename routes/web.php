@@ -15,6 +15,13 @@ Route::get('/oauth/gmail/callback', [GmailController::class, 'callback']);
 Route::get('/gmail/privacy-list', [GmailController::class, 'list'])->name('gmail.list');
 Route::get('/gmail/debug-labels', [GmailController::class, 'debugLabels']);
 Route::get('/gmail/import-db', [GmailController::class, 'importToDb']);
+
+// Rotte per gestione allegati
+Route::get('/gmail/attachments', [GmailController::class, 'listAttachments'])->name('gmail.attachments');
+Route::get('/gmail/attachments/{id}/download', [GmailController::class, 'downloadAttachment'])->name('gmail.attachment.download');
+Route::get('/gmail/attachments/message/{messageId}/download-all', [GmailController::class, 'downloadMessageAttachments'])->name('gmail.message.attachments.download');
+Route::get('/gmail/attachments/stats', [GmailController::class, 'attachmentStats'])->name('gmail.attachments.stats');
+
 // AGGIUNGI QUESTA ROTTA:
 Route::get('/gmail/start-batch', function (GoogleGmailService $service) {
     // Verifica login per sicurezza
